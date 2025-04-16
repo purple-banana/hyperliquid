@@ -57,18 +57,20 @@ export class WebSocketTransport implements ISubscriptionTransport {
           if (!this.isConnected) {
             reject(new TransportError("WebSocket connection failed"));
           }
-          console.error("WebSocket error:", error);
         };
 
         this.ws.onmessage = (event) => {
           try {
             const data = JSON.parse(event.data);
+            if (!data.channel) {
+              return;
+            }
             this.emitter.emit(
               data.channel,
               new CustomEvent(data.channel, { detail: data.data })
             );
           } catch (error) {
-            console.error("Failed to parse WebSocket message:", error);
+            // Silent fail for parse errors
           }
         };
       } catch (error) {
@@ -81,7 +83,6 @@ export class WebSocketTransport implements ISubscriptionTransport {
 
   private async handleDisconnect(): Promise<void> {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error("Max reconnection attempts reached");
       return;
     }
 
@@ -113,13 +114,21 @@ export class WebSocketTransport implements ISubscriptionTransport {
       unsubscribe: async () => {
         this.emitter.removeListener(channel, listener);
         if (this.ws && this.isConnected) {
-          this.ws.send(JSON.stringify({ ...payload, subscribe: false }));
+          const unsubPayload = {
+            method: "subscribe",
+            subscription: { ...payload, subscribe: false },
+          };
+          this.ws.send(JSON.stringify(unsubPayload));
         }
       },
     };
 
     this.emitter.on(channel, listener);
-    this.ws.send(JSON.stringify({ ...payload, subscribe: true }));
+    const subPayload = {
+      method: "subscribe",
+      subscription: payload,
+    };
+    this.ws.send(JSON.stringify(subPayload));
 
     if (signal) {
       signal.addEventListener("abort", () => {
